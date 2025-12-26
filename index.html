@@ -3,9 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>Timemark Simple</title>
+<title>Timemark Final</title>
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 
 <style>
 body {
@@ -14,9 +15,7 @@ body {
   color: #fff;
   font-family: Arial, sans-serif;
 }
-.container {
-  padding: 10px;
-}
+.container { padding: 10px; }
 input, button {
   width: 100%;
   margin: 6px 0;
@@ -36,16 +35,6 @@ canvas {
   margin-top: 10px;
   border-radius: 10px;
 }
-label {
-  font-size: 13px;
-}
-.row {
-  display: flex;
-  gap: 6px;
-}
-.row input {
-  flex: 1;
-}
 </style>
 </head>
 
@@ -58,13 +47,13 @@ label {
 <input type="datetime-local" id="timeInput">
 
 <label>Cari Lokasi</label>
-<input type="text" id="searchInput" placeholder="contoh: Jl. Karang Duren Magelang">
-<button onclick="searchLocation()">Cari</button>
+<input type="text" id="searchInput" placeholder="contoh: Jl Karang Duren Magelang">
+<button onclick="searchLocation()">Cari Lokasi</button>
 
 <div id="map"></div>
 
-<button onclick="apply()">Terapkan ke Foto</button>
-<button onclick="download()">Download PNG</button>
+<button onclick="apply()">TERAPKAN KE FOTO</button>
+<button onclick="download()">DOWNLOAD PNG</button>
 
 <canvas id="canvas"></canvas>
 
@@ -89,49 +78,36 @@ document.getElementById("photoInput").onchange = e => {
   };
 };
 
-// INIT MAP (default Indonesia)
+// INIT MAP
 map = L.map("map").setView([-7.5, 110], 6);
-
-// SATELIT (STABIL)
-L.tileLayer(
-  "https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}",
-  { maxZoom: 20 }
-).addTo(map);
+L.tileLayer("https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}", {
+  maxZoom: 20
+}).addTo(map);
 
 marker = L.marker([-7.5, 110], { draggable: true }).addTo(map);
-
-marker.on("dragend", () => {
-  const p = marker.getLatLng();
-  loc.lat = p.lat;
-  loc.lng = p.lng;
+marker.on("dragend", e => {
+  const p = e.target.getLatLng();
   reverseGeo(p.lat, p.lng);
 });
 
-// SEARCH LOKASI
+// SEARCH
 async function searchLocation() {
-  const q = document.getElementById("searchInput").value;
-  if (!q) return;
-
-  const r = await fetch(
-    `https://nominatim.openstreetmap.org/search?format=json&q=${q}`
-  );
+  const q = searchInput.value;
+  const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${q}`);
   const d = await r.json();
   if (!d.length) return alert("Lokasi tidak ditemukan");
 
-  const lat = parseFloat(d[0].lat);
-  const lng = parseFloat(d[0].lon);
+  const lat = +d[0].lat;
+  const lng = +d[0].lon;
 
   map.setView([lat, lng], 18);
   marker.setLatLng([lat, lng]);
-
   reverseGeo(lat, lng);
 }
 
-// REVERSE ALAMAT
 async function reverseGeo(lat, lng) {
   loc.lat = lat;
   loc.lng = lng;
-
   const r = await fetch(
     `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`
   );
@@ -139,35 +115,49 @@ async function reverseGeo(lat, lng) {
   loc.addr = d.display_name || "-";
 }
 
-// APPLY KE FOTO
-function apply() {
+// APPLY
+async function apply() {
   if (!img.src) return;
 
   ctx.drawImage(img, 0, 0);
 
-  const timeVal = document.getElementById("timeInput").value;
-  const date = timeVal
-    ? new Date(timeVal)
-    : new Date();
+  // SCREENSHOT MAP
+  const mapCanvas = await html2canvas(document.getElementById("map"), {
+    useCORS: true
+  });
 
-  const jam = date.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
-  const tanggal = date.toLocaleDateString("id-ID");
-  const hari = date.toLocaleDateString("id-ID", { weekday: "long" });
+  // DRAW MAP KE FOTO
+  const mapSize = 260;
+  ctx.drawImage(
+    mapCanvas,
+    canvas.width - mapSize - 30,
+    canvas.height - mapSize - 30,
+    mapSize,
+    mapSize
+  );
 
+  // TIME
+  const d = timeInput.value ? new Date(timeInput.value) : new Date();
+  const jam = d.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
+  const tanggal = d.toLocaleDateString("id-ID");
+  const hari = d.toLocaleDateString("id-ID", { weekday: "long" });
+
+  // BACKGROUND
   ctx.fillStyle = "rgba(0,0,0,0.6)";
-  ctx.fillRect(20, canvas.height - 260, canvas.width - 40, 240);
+  ctx.fillRect(20, canvas.height - 320, canvas.width - 40, 290);
 
+  // TEXT BESAR
   ctx.fillStyle = "#fff";
-  ctx.font = "90px Arial";
-  ctx.fillText(jam, 40, canvas.height - 180);
+  ctx.font = "110px Arial";
+  ctx.fillText(jam, 40, canvas.height - 210);
 
-  ctx.font = "22px Arial";
-  ctx.fillText(`${tanggal} • ${hari}`, 40, canvas.height - 140);
-  ctx.fillText(loc.addr || "-", 40, canvas.height - 110);
+  ctx.font = "26px Arial";
+  ctx.fillText(`${tanggal} • ${hari}`, 40, canvas.height - 170);
+  ctx.fillText(loc.addr || "-", 40, canvas.height - 130);
   ctx.fillText(
-    `Koordinat: ${loc.lat?.toFixed(6) || "-"}, ${loc.lng?.toFixed(6) || "-"}`,
+    `Koordinat: ${loc.lat?.toFixed(6)}, ${loc.lng?.toFixed(6)}`,
     40,
-    canvas.height - 80
+    canvas.height - 95
   );
 }
 
