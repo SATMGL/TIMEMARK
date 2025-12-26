@@ -2,172 +2,208 @@
 <html lang="id">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>Timemark Final</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Timemark V2 Pro</title>
 
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-<script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css">
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
+<script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
 
 <style>
+@font-face {
+  font-family: Digital;
+  src: url("https://fonts.gstatic.com/s/digital7mono/v1/d-6IYplOFocCacKzxw.woff2");
+}
 body {
   margin: 0;
-  background: #000;
+  background: #0b0b0b;
   color: #fff;
   font-family: Arial, sans-serif;
 }
-.container { padding: 10px; }
-input, button {
-  width: 100%;
-  margin: 6px 0;
+.panel {
   padding: 10px;
   background: #111;
-  color: #fff;
-  border: 1px solid #00eaff;
-  border-radius: 6px;
+}
+input, button {
+  width: 100%;
+  padding: 8px;
+  margin: 4px 0;
 }
 #map {
   height: 260px;
-  border-radius: 10px;
-  border: 1px solid #00eaff;
 }
 canvas {
-  width: 100%;
-  margin-top: 10px;
-  border-radius: 10px;
+  max-width: 100%;
+  display: block;
+  margin: auto;
+}
+.actions {
+  display: flex;
+  gap: 8px;
 }
 </style>
 </head>
 
 <body>
-<div class="container">
 
-<input type="file" accept="image/*" id="photoInput">
-
-<label>Tanggal & Jam</label>
-<input type="datetime-local" id="timeInput">
-
-<label>Cari Lokasi</label>
-<input type="text" id="searchInput" placeholder="contoh: Jl Karang Duren Magelang">
-<button onclick="searchLocation()">Cari Lokasi</button>
-
-<div id="map"></div>
-
-<button onclick="apply()">TERAPKAN KE FOTO</button>
-<button onclick="download()">DOWNLOAD PNG</button>
-
-<canvas id="canvas"></canvas>
-
+<div class="panel">
+  <input type="file" id="photo" accept="image/*">
+  <input type="datetime-local" id="timeInput">
+  <input type="text" id="compass" placeholder="Kompas (contoh: 70° E)">
+  <button onclick="apply()">Terapkan</button>
+  <div class="actions">
+    <button onclick="download('png')">PNG</button>
+    <button onclick="download('jpg')">JPG</button>
+  </div>
 </div>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<div id="map"></div>
+<canvas id="canvas"></canvas>
 
 <script>
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
-let img = new Image();
+const img = new Image();
 
-let map, marker;
-let loc = {};
-
-document.getElementById("photoInput").onchange = e => {
-  img.src = URL.createObjectURL(e.target.files[0]);
-  img.onload = () => {
-    canvas.width = img.width;
-    canvas.height = img.height;
-    ctx.drawImage(img, 0, 0);
-  };
+let loc = {
+  lat: -7.476219,
+  lng: 110.265640,
+  addr: "Lokasi belum dipilih",
+  elev: "-",
+  cuaca: "-"
 };
 
-// INIT MAP
-map = L.map("map").setView([-7.5, 110], 6);
-L.tileLayer("https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}", {
-  maxZoom: 20
+// ===== MAP =====
+const map = L.map("map").setView([loc.lat, loc.lng], 17);
+L.tileLayer(
+  "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+  { attribution: "© Esri" }
+).addTo(map);
+
+const marker = L.marker([loc.lat, loc.lng], { draggable: true }).addTo(map);
+
+marker.on("dragend", e => updateLocation(e.target.getLatLng()));
+
+L.Control.geocoder({
+  defaultMarkGeocode: false
+}).on("markgeocode", e => {
+  const p = e.geocode.center;
+  loc.addr = e.geocode.name;
+  marker.setLatLng(p);
+  map.setView(p, 18);
+  updateLocation(p);
 }).addTo(map);
 
-marker = L.marker([-7.5, 110], { draggable: true }).addTo(map);
-marker.on("dragend", e => {
-  const p = e.target.getLatLng();
-  reverseGeo(p.lat, p.lng);
-});
+// ===== FOTO =====
+document.getElementById("photo").onchange = e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const r = new FileReader();
+  r.onload = ev => {
+    img.src = ev.target.result;
+    img.onload = () => {
+      canvas.width = img.width;
+      canvas.height = img.height;
+      ctx.drawImage(img, 0, 0);
+    };
+  };
+  r.readAsDataURL(f);
+};
 
-// SEARCH
-async function searchLocation() {
-  const q = searchInput.value;
-  const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${q}`);
-  const d = await r.json();
-  if (!d.length) return alert("Lokasi tidak ditemukan");
+// ===== DATA =====
+async function updateLocation(p) {
+  loc.lat = p.lat;
+  loc.lng = p.lng;
 
-  const lat = +d[0].lat;
-  const lng = +d[0].lon;
+  // Elevation
+  fetch(`https://api.open-elevation.com/api/v1/lookup?locations=${p.lat},${p.lng}`)
+    .then(r => r.json())
+    .then(d => loc.elev = d.results[0].elevation + " m");
 
-  map.setView([lat, lng], 18);
-  marker.setLatLng([lat, lng]);
-  reverseGeo(lat, lng);
+  // Weather
+  fetch(`https://api.open-meteo.com/v1/forecast?latitude=${p.lat}&longitude=${p.lng}&current_weather=true`)
+    .then(r => r.json())
+    .then(d => loc.cuaca = d.current_weather.temperature + "°C");
 }
 
-async function reverseGeo(lat, lng) {
-  loc.lat = lat;
-  loc.lng = lng;
-  const r = await fetch(
-    `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`
-  );
-  const d = await r.json();
-  loc.addr = d.display_name || "-";
-}
-
-// APPLY
+// ===== APPLY =====
 async function apply() {
   if (!img.src) return;
-
   ctx.drawImage(img, 0, 0);
 
-  // SCREENSHOT MAP
-  const mapCanvas = await html2canvas(document.getElementById("map"), {
-    useCORS: true
+  const JAM = canvas.height * 0.55;
+  const TXT = JAM * 0.20;
+  const MAP = canvas.width * 0.28;
+
+  const mapShot = await html2canvas(document.getElementById("map"));
+
+  ctx.drawImage(
+    mapShot,
+    canvas.width - MAP - 25,
+    canvas.height - MAP - 25,
+    MAP, MAP
+  );
+
+  const d = timeInput.value ? new Date(timeInput.value) : new Date();
+  const jam = d.toLocaleTimeString("id-ID",{hour:"2-digit",minute:"2-digit"});
+  const tanggal = d.toLocaleDateString("id-ID");
+  const hari = d.toLocaleDateString("id-ID",{weekday:"long"});
+
+  const boxH = JAM + TXT * 9 + 80;
+  ctx.fillStyle = "rgba(0,0,0,0.6)";
+  ctx.fillRect(20, canvas.height - boxH - 20, canvas.width - 40, boxH);
+
+  // JAM
+  ctx.font = `bold ${JAM}px Digital`;
+  ctx.fillStyle = "#fff";
+  ctx.fillText(jam, 55, canvas.height - boxH + JAM);
+
+  // GARIS
+  ctx.fillStyle = "#FFC400";
+  ctx.fillRect(40, canvas.height - boxH + 10, 6, JAM - 20);
+
+  // TEXT
+  ctx.font = `${TXT}px Arial`;
+  ctx.fillStyle = "#fff";
+  let y = canvas.height - boxH + JAM + 15;
+
+  ctx.fillText(`${tanggal}`, 40, y); y += TXT + 4;
+  ctx.fillText(`${hari}`, 40, y); y += TXT + 12;
+
+  loc.addr.split(",").forEach(l => {
+    ctx.fillText(l.trim(), 40, y);
+    y += TXT + 4;
   });
 
-  // DRAW MAP KE FOTO
-  const mapSize = 260;
-  ctx.drawImage(
-    mapCanvas,
-    canvas.width - mapSize - 30,
-    canvas.height - mapSize - 30,
-    mapSize,
-    mapSize
-  );
+  y += TXT * 0.8;
+  ctx.fillText(`Cuaca: ${loc.cuaca}`, 40, y); y += TXT + 4;
+  ctx.fillText(`Koordinat: ${loc.lat.toFixed(6)}°S, ${loc.lng.toFixed(6)}°E`, 40, y);
+  y += TXT + 4;
+  ctx.fillText(`Ketinggian: ${loc.elev}`, 40, y);
+  y += TXT + 4;
+  ctx.fillText(`Kompas: ${compass.value}`, 40, y);
 
-  // TIME
-  const d = timeInput.value ? new Date(timeInput.value) : new Date();
-  const jam = d.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
-  const tanggal = d.toLocaleDateString("id-ID");
-  const hari = d.toLocaleDateString("id-ID", { weekday: "long" });
-
-  // BACKGROUND
-  ctx.fillStyle = "rgba(0,0,0,0.6)";
-  ctx.fillRect(20, canvas.height - 320, canvas.width - 40, 290);
-
-  // TEXT BESAR
-  ctx.fillStyle = "#fff";
-  ctx.font = "110px Arial";
-  ctx.fillText(jam, 40, canvas.height - 210);
-
-  ctx.font = "26px Arial";
-  ctx.fillText(`${tanggal} • ${hari}`, 40, canvas.height - 170);
-  ctx.fillText(loc.addr || "-", 40, canvas.height - 130);
-  ctx.fillText(
-    `Koordinat: ${loc.lat?.toFixed(6)}, ${loc.lng?.toFixed(6)}`,
-    40,
-    canvas.height - 95
-  );
+  // WATERMARK
+  ctx.save();
+  ctx.translate(canvas.width - 20, canvas.height / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.font = "bold 24px Arial";
+  ctx.fillStyle = "rgba(255,255,255,0.6)";
+  ctx.fillText("Timemark Verified", 0, 0);
+  ctx.restore();
 }
 
-// DOWNLOAD
-function download() {
+// ===== DOWNLOAD =====
+function download(type) {
   const a = document.createElement("a");
-  a.download = "timemark.png";
-  a.href = canvas.toDataURL("image/png");
+  a.href = canvas.toDataURL(`image/${type}`, 1.0);
+  a.download = `timemark_v2.${type}`;
   a.click();
 }
 </script>
+
 </body>
 </html>
