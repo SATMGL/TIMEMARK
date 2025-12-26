@@ -3,16 +3,16 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>Foto + Timemark & Map Pin</title>
+<title>Timemark Pro</title>
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 
 <style>
 body {
   margin: 0;
+  background: #000;
+  color: #fff;
   font-family: Arial, sans-serif;
-  background: #0b0f14;
-  color: #e5e7eb;
 }
 .container {
   padding: 10px;
@@ -21,27 +21,23 @@ input, button {
   width: 100%;
   margin: 6px 0;
   padding: 10px;
-  background: #111827;
+  background: #111;
   color: #fff;
-  border: 1px solid #22d3ee;
+  border: 1px solid #00eaff;
   border-radius: 6px;
-}
-#map {
-  height: 260px;
-  border: 1px solid #22d3ee;
-  border-radius: 8px;
-  margin-top: 6px;
 }
 canvas {
   width: 100%;
-  background: #000;
-  border: 1px solid #22d3ee;
-  border-radius: 8px;
+  border-radius: 10px;
   margin-top: 10px;
 }
-.small {
+#map {
+  height: 180px;
+  border-radius: 8px;
+  border: 1px solid #00eaff;
+}
+label {
   font-size: 12px;
-  white-space: pre-line;
 }
 </style>
 </head>
@@ -49,20 +45,25 @@ canvas {
 <body>
 <div class="container">
 
-  <input type="file" accept="image/*" id="photoInput">
+<input type="file" accept="image/*" id="photoInput">
 
-  <label>Waktu</label>
-  <input type="datetime-local" id="timeInput">
+<label>Ukuran Jam</label>
+<input type="range" id="jamSize" min="60" max="140" value="110">
 
-  <button onclick="initGPS()">Ambil Lokasi Awal (GPS)</button>
+<label>Ukuran Teks Detail</label>
+<input type="range" id="textSize" min="16" max="32" value="22">
 
-  <div id="map"></div>
+<label>Ukuran Map</label>
+<input type="range" id="mapSize" min="120" max="260" value="180">
 
-  <div class="small" id="locInfo">Geser pin untuk menentukan lokasi</div>
+<button onclick="initGPS()">Ambil Lokasi</button>
 
-  <button onclick="drawOverlay()">Terapkan ke Foto</button>
+<div id="map"></div>
 
-  <canvas id="canvas"></canvas>
+<button onclick="drawOverlay()">Terapkan</button>
+<button onclick="download()">Download PNG</button>
+
+<canvas id="canvas"></canvas>
 
 </div>
 
@@ -74,93 +75,104 @@ const ctx = canvas.getContext("2d");
 let img = new Image();
 
 let map, marker;
-let locationData = {};
+let loc = {};
 
-document.getElementById("photoInput").addEventListener("change", e => {
-  const file = e.target.files[0];
-  if (!file) return;
-  img.src = URL.createObjectURL(file);
+document.getElementById("photoInput").onchange = e => {
+  img.src = URL.createObjectURL(e.target.files[0]);
   img.onload = () => {
     canvas.width = img.width;
     canvas.height = img.height;
     ctx.drawImage(img, 0, 0);
   };
-});
+};
+
+function initGPS() {
+  navigator.geolocation.getCurrentPosition(pos => {
+    loc.lat = pos.coords.latitude;
+    loc.lng = pos.coords.longitude;
+    loc.alt = pos.coords.altitude
+      ? pos.coords.altitude.toFixed(1) + " m"
+      : "-";
+
+    initMap(loc.lat, loc.lng);
+    reverseGeo(loc.lat, loc.lng);
+  });
+}
 
 function initMap(lat, lng) {
   if (map) map.remove();
 
-  map = L.map('map').setView([lat, lng], 17);
+  map = L.map("map").setView([lat, lng], 18);
 
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19
-  }).addTo(map);
+  // SATELIT
+  L.tileLayer(
+    "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+  ).addTo(map);
 
   marker = L.marker([lat, lng], { draggable: true }).addTo(map);
-
-  marker.on('dragend', () => {
-    const pos = marker.getLatLng();
-    updateLocation(pos.lat, pos.lng);
+  marker.on("dragend", () => {
+    const p = marker.getLatLng();
+    reverseGeo(p.lat, p.lng);
   });
-
-  updateLocation(lat, lng);
 }
 
-function initGPS() {
-  if (!navigator.geolocation) {
-    alert("GPS tidak didukung");
-    return;
-  }
+async function reverseGeo(lat, lng) {
+  loc.lat = lat;
+  loc.lng = lng;
 
-  navigator.geolocation.getCurrentPosition(pos => {
-    initMap(pos.coords.latitude, pos.coords.longitude);
-    locationData.alt = pos.coords.altitude
-      ? pos.coords.altitude.toFixed(1) + " m"
-      : "Tidak tersedia";
-  }, () => alert("Gagal ambil lokasi"));
-}
-
-async function updateLocation(lat, lng) {
-  locationData.lat = lat.toFixed(6);
-  locationData.lng = lng.toFixed(6);
-
-  const res = await fetch(
+  const r = await fetch(
     `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`
   );
-  const data = await res.json();
-
-  locationData.address = data.display_name || "Alamat tidak ditemukan";
-
-  document.getElementById("locInfo").innerText =
-    `📍 ${locationData.address}\n` +
-    `Lat: ${locationData.lat}, Lng: ${locationData.lng}\n` +
-    `⛰️ ${locationData.alt || "-"}`;
+  const d = await r.json();
+  loc.addr = d.display_name || "-";
 }
 
 function drawOverlay() {
-  if (!img.src) return;
-
   ctx.drawImage(img, 0, 0);
 
-  ctx.fillStyle = "rgba(0,0,0,0.55)";
-  ctx.fillRect(20, canvas.height - 160, canvas.width - 40, 130);
+  const jamSize = +jamSizeEl.value;
+  const textSize = +textSizeEl.value;
+  const mapBox = +mapSizeEl.value;
 
-  ctx.fillStyle = "#00f5ff";
-  ctx.font = "20px Arial";
+  const now = new Date();
+  const jam = now.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
+  const tanggal = now.toLocaleDateString("id-ID");
+  const hari = now.toLocaleDateString("id-ID", { weekday: "long" });
 
-  const time = document.getElementById("timeInput").value || "-";
+  ctx.fillStyle = "rgba(0,0,0,0.6)";
+  ctx.fillRect(20, canvas.height - 360, canvas.width - 40, 340);
 
-  const lines = [
-    `⏰ ${time}`,
-    `📍 ${locationData.address || "-"}`,
-    `Lat: ${locationData.lat || "-"}, Lng: ${locationData.lng || "-"}`,
-    `⛰️ ${locationData.alt || "-"}`
-  ];
+  ctx.fillStyle = "#fff";
+  ctx.font = `${jamSize}px Arial`;
+  ctx.fillText(jam, 40, canvas.height - 300);
 
-  lines.forEach((t, i) => {
-    ctx.fillText(t, 30, canvas.height - 120 + i * 26);
-  });
+  ctx.font = `${textSize}px Arial`;
+  ctx.fillText(`${tanggal}`, 40, canvas.height - 250);
+  ctx.fillText(`${hari}`, 40, canvas.height - 220);
+  ctx.fillText(loc.addr || "-", 40, canvas.height - 180);
+  ctx.fillText(`Koordinat: ${loc.lat.toFixed(6)}, ${loc.lng.toFixed(6)}`, 40, canvas.height - 140);
+  ctx.fillText(`Ketinggian: ${loc.alt}`, 40, canvas.height - 110);
+
+  // MAP PREVIEW
+  ctx.strokeStyle = "#00eaff";
+  ctx.strokeRect(
+    canvas.width - mapBox - 30,
+    canvas.height - mapBox - 40,
+    mapBox,
+    mapBox
+  );
 }
+
+function download() {
+  const a = document.createElement("a");
+  a.download = "timemark.png";
+  a.href = canvas.toDataURL("image/png");
+  a.click();
+}
+
+const jamSizeEl = document.getElementById("jamSize");
+const textSizeEl = document.getElementById("textSize");
+const mapSizeEl = document.getElementById("mapSize");
 </script>
 </body>
 </html>
