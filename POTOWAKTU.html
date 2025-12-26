@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Foto + Timemark & Map Pin</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+
+<style>
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+  background: #0b0f14;
+  color: #e5e7eb;
+}
+.container {
+  padding: 10px;
+}
+input, button {
+  width: 100%;
+  margin: 6px 0;
+  padding: 10px;
+  background: #111827;
+  color: #fff;
+  border: 1px solid #22d3ee;
+  border-radius: 6px;
+}
+#map {
+  height: 260px;
+  border: 1px solid #22d3ee;
+  border-radius: 8px;
+  margin-top: 6px;
+}
+canvas {
+  width: 100%;
+  background: #000;
+  border: 1px solid #22d3ee;
+  border-radius: 8px;
+  margin-top: 10px;
+}
+.small {
+  font-size: 12px;
+  white-space: pre-line;
+}
+</style>
+</head>
+
+<body>
+<div class="container">
+
+  <input type="file" accept="image/*" id="photoInput">
+
+  <label>Waktu</label>
+  <input type="datetime-local" id="timeInput">
+
+  <button onclick="initGPS()">Ambil Lokasi Awal (GPS)</button>
+
+  <div id="map"></div>
+
+  <div class="small" id="locInfo">Geser pin untuk menentukan lokasi</div>
+
+  <button onclick="drawOverlay()">Terapkan ke Foto</button>
+
+  <canvas id="canvas"></canvas>
+
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+let img = new Image();
+
+let map, marker;
+let locationData = {};
+
+document.getElementById("photoInput").addEventListener("change", e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  img.src = URL.createObjectURL(file);
+  img.onload = () => {
+    canvas.width = img.width;
+    canvas.height = img.height;
+    ctx.drawImage(img, 0, 0);
+  };
+});
+
+function initMap(lat, lng) {
+  if (map) map.remove();
+
+  map = L.map('map').setView([lat, lng], 17);
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19
+  }).addTo(map);
+
+  marker = L.marker([lat, lng], { draggable: true }).addTo(map);
+
+  marker.on('dragend', () => {
+    const pos = marker.getLatLng();
+    updateLocation(pos.lat, pos.lng);
+  });
+
+  updateLocation(lat, lng);
+}
+
+function initGPS() {
+  if (!navigator.geolocation) {
+    alert("GPS tidak didukung");
+    return;
+  }
+
+  navigator.geolocation.getCurrentPosition(pos => {
+    initMap(pos.coords.latitude, pos.coords.longitude);
+    locationData.alt = pos.coords.altitude
+      ? pos.coords.altitude.toFixed(1) + " m"
+      : "Tidak tersedia";
+  }, () => alert("Gagal ambil lokasi"));
+}
+
+async function updateLocation(lat, lng) {
+  locationData.lat = lat.toFixed(6);
+  locationData.lng = lng.toFixed(6);
+
+  const res = await fetch(
+    `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`
+  );
+  const data = await res.json();
+
+  locationData.address = data.display_name || "Alamat tidak ditemukan";
+
+  document.getElementById("locInfo").innerText =
+    `📍 ${locationData.address}\n` +
+    `Lat: ${locationData.lat}, Lng: ${locationData.lng}\n` +
+    `⛰️ ${locationData.alt || "-"}`;
+}
+
+function drawOverlay() {
+  if (!img.src) return;
+
+  ctx.drawImage(img, 0, 0);
+
+  ctx.fillStyle = "rgba(0,0,0,0.55)";
+  ctx.fillRect(20, canvas.height - 160, canvas.width - 40, 130);
+
+  ctx.fillStyle = "#00f5ff";
+  ctx.font = "20px Arial";
+
+  const time = document.getElementById("timeInput").value || "-";
+
+  const lines = [
+    `⏰ ${time}`,
+    `📍 ${locationData.address || "-"}`,
+    `Lat: ${locationData.lat || "-"}, Lng: ${locationData.lng || "-"}`,
+    `⛰️ ${locationData.alt || "-"}`
+  ];
+
+  lines.forEach((t, i) => {
+    ctx.fillText(t, 30, canvas.height - 120 + i * 26);
+  });
+}
+</script>
+</body>
+</html>
