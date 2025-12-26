@@ -3,10 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>Timemark Lapangan</title>
+<title>Timemark Simple</title>
 
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 
 <style>
 body {
@@ -27,18 +26,25 @@ input, button {
   border: 1px solid #00eaff;
   border-radius: 6px;
 }
-canvas {
-  width: 100%;
-  margin-top: 10px;
-  border-radius: 10px;
-}
 #map {
   height: 260px;
   border-radius: 10px;
   border: 1px solid #00eaff;
 }
+canvas {
+  width: 100%;
+  margin-top: 10px;
+  border-radius: 10px;
+}
 label {
-  font-size: 12px;
+  font-size: 13px;
+}
+.row {
+  display: flex;
+  gap: 6px;
+}
+.row input {
+  flex: 1;
 }
 </style>
 </head>
@@ -48,20 +54,16 @@ label {
 
 <input type="file" accept="image/*" id="photoInput">
 
-<label>Ukuran Jam</label>
-<input type="range" id="jamSize" min="60" max="140" value="110">
+<label>Tanggal & Jam</label>
+<input type="datetime-local" id="timeInput">
 
-<label>Ukuran Teks</label>
-<input type="range" id="textSize" min="16" max="30" value="22">
-
-<label>Ukuran Map</label>
-<input type="range" id="mapSize" min="120" max="260" value="180">
-
-<button onclick="initGPS()">Ambil Lokasi GPS</button>
+<label>Cari Lokasi</label>
+<input type="text" id="searchInput" placeholder="contoh: Jl. Karang Duren Magelang">
+<button onclick="searchLocation()">Cari</button>
 
 <div id="map"></div>
 
-<button onclick="drawOverlay()">Terapkan ke Foto</button>
+<button onclick="apply()">Terapkan ke Foto</button>
 <button onclick="download()">Download PNG</button>
 
 <canvas id="canvas"></canvas>
@@ -69,7 +71,6 @@ label {
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
 
 <script>
 const canvas = document.getElementById("canvas");
@@ -78,7 +79,6 @@ let img = new Image();
 
 let map, marker;
 let loc = {};
-let mapImage = new Image();
 
 document.getElementById("photoInput").onchange = e => {
   img.src = URL.createObjectURL(e.target.files[0]);
@@ -89,53 +89,49 @@ document.getElementById("photoInput").onchange = e => {
   };
 };
 
-function initGPS() {
-  navigator.geolocation.getCurrentPosition(pos => {
-    loc.lat = pos.coords.latitude;
-    loc.lng = pos.coords.longitude;
-    loc.alt = pos.coords.altitude
-      ? pos.coords.altitude.toFixed(1) + " m"
-      : "-";
-    initMap(loc.lat, loc.lng);
-    reverseGeo(loc.lat, loc.lng);
-  });
+// INIT MAP (default Indonesia)
+map = L.map("map").setView([-7.5, 110], 6);
+
+// SATELIT (STABIL)
+L.tileLayer(
+  "https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}",
+  { maxZoom: 20 }
+).addTo(map);
+
+marker = L.marker([-7.5, 110], { draggable: true }).addTo(map);
+
+marker.on("dragend", () => {
+  const p = marker.getLatLng();
+  loc.lat = p.lat;
+  loc.lng = p.lng;
+  reverseGeo(p.lat, p.lng);
+});
+
+// SEARCH LOKASI
+async function searchLocation() {
+  const q = document.getElementById("searchInput").value;
+  if (!q) return;
+
+  const r = await fetch(
+    `https://nominatim.openstreetmap.org/search?format=json&q=${q}`
+  );
+  const d = await r.json();
+  if (!d.length) return alert("Lokasi tidak ditemukan");
+
+  const lat = parseFloat(d[0].lat);
+  const lng = parseFloat(d[0].lon);
+
+  map.setView([lat, lng], 18);
+  marker.setLatLng([lat, lng]);
+
+  reverseGeo(lat, lng);
 }
 
-function initMap(lat, lng) {
-  if (map) map.remove();
-
-  map = L.map("map").setView([lat, lng], 18);
-
-  // SATELIT STABIL
-  L.tileLayer(
-    "https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}",
-    { maxZoom: 20 }
-  ).addTo(map);
-
-  marker = L.marker([lat, lng], { draggable: true }).addTo(map);
-  marker.on("dragend", () => {
-    const p = marker.getLatLng();
-    reverseGeo(p.lat, p.lng);
-    updateStaticMap(p.lat, p.lng);
-  });
-
-  // SEARCH LOKASI
-  L.Control.geocoder({
-    defaultMarkGeocode: false
-  }).on("markgeocode", e => {
-    const p = e.geocode.center;
-    map.setView(p, 18);
-    marker.setLatLng(p);
-    reverseGeo(p.lat, p.lng);
-    updateStaticMap(p.lat, p.lng);
-  }).addTo(map);
-
-  updateStaticMap(lat, lng);
-}
-
+// REVERSE ALAMAT
 async function reverseGeo(lat, lng) {
   loc.lat = lat;
   loc.lng = lng;
+
   const r = await fetch(
     `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`
   );
@@ -143,60 +139,45 @@ async function reverseGeo(lat, lng) {
   loc.addr = d.display_name || "-";
 }
 
-function updateStaticMap(lat, lng) {
-  const size = 300;
-  mapImage.src =
-    `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}` +
-    `&zoom=18&size=${size}x${size}&maptype=satellite&markers=color:red|${lat},${lng}`;
-}
+// APPLY KE FOTO
+function apply() {
+  if (!img.src) return;
 
-function drawOverlay() {
   ctx.drawImage(img, 0, 0);
 
-  const jamSize = +jamSizeEl.value;
-  const textSize = +textSizeEl.value;
-  const mapBox = +mapSizeEl.value;
+  const timeVal = document.getElementById("timeInput").value;
+  const date = timeVal
+    ? new Date(timeVal)
+    : new Date();
 
-  const now = new Date();
-  const jam = now.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
-  const tanggal = now.toLocaleDateString("id-ID");
-  const hari = now.toLocaleDateString("id-ID", { weekday: "long" });
+  const jam = date.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
+  const tanggal = date.toLocaleDateString("id-ID");
+  const hari = date.toLocaleDateString("id-ID", { weekday: "long" });
 
   ctx.fillStyle = "rgba(0,0,0,0.6)";
-  ctx.fillRect(20, canvas.height - 380, canvas.width - 40, 360);
+  ctx.fillRect(20, canvas.height - 260, canvas.width - 40, 240);
 
   ctx.fillStyle = "#fff";
-  ctx.font = `${jamSize}px Arial`;
-  ctx.fillText(jam, 40, canvas.height - 300);
+  ctx.font = "90px Arial";
+  ctx.fillText(jam, 40, canvas.height - 180);
 
-  ctx.font = `${textSize}px Arial`;
-  ctx.fillText(`${tanggal} • ${hari}`, 40, canvas.height - 250);
-  ctx.fillText(loc.addr || "-", 40, canvas.height - 210);
-  ctx.fillText(`Koordinat: ${loc.lat.toFixed(6)}, ${loc.lng.toFixed(6)}`, 40, canvas.height - 170);
-  ctx.fillText(`Ketinggian: ${loc.alt}`, 40, canvas.height - 140);
-
-  // MINI MAP
-  if (mapImage.complete) {
-    ctx.drawImage(
-      mapImage,
-      canvas.width - mapBox - 30,
-      canvas.height - mapBox - 40,
-      mapBox,
-      mapBox
-    );
-  }
+  ctx.font = "22px Arial";
+  ctx.fillText(`${tanggal} • ${hari}`, 40, canvas.height - 140);
+  ctx.fillText(loc.addr || "-", 40, canvas.height - 110);
+  ctx.fillText(
+    `Koordinat: ${loc.lat?.toFixed(6) || "-"}, ${loc.lng?.toFixed(6) || "-"}`,
+    40,
+    canvas.height - 80
+  );
 }
 
+// DOWNLOAD
 function download() {
   const a = document.createElement("a");
   a.download = "timemark.png";
   a.href = canvas.toDataURL("image/png");
   a.click();
 }
-
-const jamSizeEl = document.getElementById("jamSize");
-const textSizeEl = document.getElementById("textSize");
-const mapSizeEl = document.getElementById("mapSize");
 </script>
 </body>
 </html>
